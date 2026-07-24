@@ -1,0 +1,40 @@
+{
+  "name": "simple-support-system-mcp",
+  "version": "1.0.0",
+  "description": "Local stdio MCP server for the Simple Support System REST API of Concrete CMS: read tickets, reply to them, change their state, and manage projects, comments and attachments.",
+  "author": "Fabian Bitter (fabian@bitter.de)",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "bin": {
+    "simple-support-system-mcp": "dist/src/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "start": "node dist/src/index.js",
+    "test": "npm run build && node --test dist/test/*.test.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "concrete-cms",
+    "support",
+    "tickets"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "^5.8.3"
+  }
+}
