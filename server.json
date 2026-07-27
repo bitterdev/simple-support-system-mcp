@@ -6,5 +6,34 @@
     "url": "https://github.com/bitterdev/simple-support-system-mcp",
     "source": "github"
   },
-  "version": "1.0.0"
+  "version": "1.0.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "simple-support-system-mcp",
+      "version": "1.0.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SIMPLE_SUPPORT_SYSTEM_BASE_URL",
+          "description": "Base URL of the Concrete CMS site running the Simple Support System package",
+          "isRequired": true
+        },
+        {
+          "name": "SIMPLE_SUPPORT_SYSTEM_API_KEY",
+          "description": "API key sent as the X-Api-Key header, needed for administrative calls",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "SIMPLE_SUPPORT_SYSTEM_PROJECT_TOKEN",
+          "description": "Default access token for private projects",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
 }
