@@ -1,6 +1,6 @@
 {
   "name": "simple-support-system-mcp",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Local stdio MCP server for the Simple Support System REST API of Concrete CMS: read tickets, reply to them, change their state, and manage projects, comments and attachments.",
   "mcpName": "io.github.bitterdev/simple-support-system-mcp",
   "author": "Fabian Bitter (fabian@bitter.de)",

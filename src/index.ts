@@ -1,13 +1,21 @@
 #!/usr/bin/env node
 /* Author: Fabian Bitter (fabian@bitter.de) */
 
+import { createRequire } from 'node:module';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { SupportSystemClient } from './client.js';
 import { loadConfig } from './config.js';
 import { createTools } from './tools.js';
 
-const packageVersion = '1.0.0';
+const packageVersion = ((): string => {
+  try {
+    const require = createRequire(import.meta.url);
+    return (require('../../package.json') as { version: string }).version;
+  } catch {
+    return '0.0.0';
+  }
+})();
 
 const instructions = [
   'Talks to the REST API of the Simple Support System add-on for Concrete CMS.',
