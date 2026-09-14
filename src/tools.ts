@@ -86,14 +86,50 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
     },
   });
 
+  const pinnedProjectId = client.settings.projectId;
+
+  const ensureProjectInScope = (projectId: number): void => {
+    if (pinnedProjectId !== undefined && projectId !== pinnedProjectId) {
+      throw new Error(`This server is limited to project ${pinnedProjectId}, project ${projectId} is not reachable through it.`);
+    }
+  };
+
+  const refuseWhenPinned = (action: string): void => {
+    if (pinnedProjectId !== undefined) {
+      throw new Error(`This server is limited to project ${pinnedProjectId}, ${action} is not available.`);
+    }
+  };
+
+  const ensureTicketInScope = (ticket: Ticket, ticketId: number): void => {
+    if (pinnedProjectId !== undefined && ticket.projectId !== pinnedProjectId) {
+      throw new Error(
+        `Ticket ${ticketId} belongs to project ${ticket.projectId ?? 'unknown'}, this server is limited to project ${pinnedProjectId}.`,
+      );
+    }
+  };
+
+  // Ticket ids are global, so a pinned server has to look up the project before acting on one.
+  const guardTicket = async (ticketId: number, token?: string): Promise<void> => {
+    if (pinnedProjectId === undefined) {
+      return;
+    }
+    ensureTicketInScope(await client.getTicket(ticketId, token), ticketId);
+  };
+
   const resolveProject = async (input: Record<string, unknown>): Promise<number | undefined> => {
+    let projectId: number | undefined;
     if (typeof input.projectId === 'number') {
-      return input.projectId;
+      projectId = input.projectId;
+    } else if (typeof input.projectHandle === 'string' && input.projectHandle !== '') {
+      projectId = await client.resolveProjectId(input.projectHandle, input.token as string | undefined);
     }
-    if (typeof input.projectHandle === 'string' && input.projectHandle !== '') {
-      return client.resolveProjectId(input.projectHandle, input.token as string | undefined);
+    if (pinnedProjectId === undefined) {
+      return projectId;
     }
-    return undefined;
+    if (projectId !== undefined) {
+      ensureProjectInScope(projectId);
+    }
+    return pinnedProjectId;
   };
 
   return [
@@ -179,6 +215,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         const ticketId = input.ticketId as number;
         const token = input.token as string | undefined;
         const ticket = await client.getTicket(ticketId, token);
+        ensureTicketInScope(ticket, ticketId);
         if (input.includeComments === false) {
           return json({ ticket });
         }
@@ -200,6 +237,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         token: tokenField,
       },
       handler: async (input) => {
+        await guardTicket(input.ticketId as number, input.token as string | undefined);
         const comment = await client.addComment({
           ticketId: input.ticketId as number,
           comment: input.comment as string,
@@ -220,6 +258,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         state: z.enum(TICKET_WORKFLOW_STATES).describe('Target state.'),
       },
       handler: async (input) => {
+        await guardTicket(input.ticketId as number);
         const ticket = await client.setTicketState(input.ticketId as number, input.state as string);
         return json({ updated: true, ticket: summarizeTicket(ticket) });
       },
@@ -243,12 +282,18 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         token: tokenField,
       },
       handler: async (input) => {
-        if (input.projectId === undefined && input.projectHandle === undefined) {
+        if (pinnedProjectId === undefined && input.projectId === undefined && input.projectHandle === undefined) {
           throw new Error('Either projectId or projectHandle has to be given.');
         }
+        const project =
+          pinnedProjectId !== undefined
+            ? { projectId: await resolveProject(input) }
+            : {
+                ...(typeof input.projectId === 'number' ? { projectId: input.projectId } : {}),
+                ...(typeof input.projectHandle === 'string' ? { projectHandle: input.projectHandle } : {}),
+              };
         const response = await client.createTicket({
-          ...(typeof input.projectId === 'number' ? { projectId: input.projectId } : {}),
-          ...(typeof input.projectHandle === 'string' ? { projectHandle: input.projectHandle } : {}),
+          ...project,
           title: input.title as string,
           content: input.content as string,
           ticketType: input.ticketType as string,
@@ -289,6 +334,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         if (Object.keys(fields).length === 0) {
           throw new Error('Give at least one field to update.');
         }
+        await guardTicket(input.ticketId as number);
         const ticket = await client.updateTicket(input.ticketId as number, fields);
         return json({ updated: true, ticket: summarizeTicket(ticket) });
       },
@@ -305,6 +351,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         confirm: z.literal(true).describe('Set to true to confirm the irreversible deletion.'),
       },
       handler: async (input) => {
+        await guardTicket(input.ticketId as number);
         const response = await client.deleteTicket(input.ticketId as number);
         return json({ deleted: true, ticketId: input.ticketId, response });
       },
@@ -320,6 +367,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         ticketId: z.number().int().positive().describe('Ticket to approve.'),
       },
       handler: async (input) => {
+        await guardTicket(input.ticketId as number);
         const ticket = await client.approveTicket(input.ticketId as number);
         return json({ approved: true, ticket: summarizeTicket(ticket) });
       },
@@ -336,6 +384,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         token: tokenField,
       },
       handler: async (input) => {
+        await guardTicket(input.ticketId as number, input.token as string | undefined);
         const comments = await client.listComments(input.ticketId as number, input.token as string | undefined);
         return json({ ticketId: input.ticketId, count: comments.length, comments: comments.map(summarizeComment) });
       },
@@ -352,6 +401,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         content: z.string().min(1).describe('New comment text.'),
       },
       handler: async (input) => {
+        await guardTicket(input.ticketId as number);
         const comment = await client.updateComment(
           input.ticketId as number,
           input.commentId as number,
@@ -373,6 +423,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         confirm: z.literal(true).describe('Set to true to confirm the irreversible deletion.'),
       },
       handler: async (input) => {
+        await guardTicket(input.ticketId as number);
         const response = await client.deleteComment(input.ticketId as number, input.commentId as number);
         return json({ deleted: true, commentId: input.commentId, response });
       },
@@ -387,6 +438,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         commentId: z.number().int().positive().describe('Comment to approve.'),
       },
       handler: async (input) => {
+        refuseWhenPinned('approving a comment by its id alone');
         const comment = await client.approveComment(input.commentId as number);
         return json({ approved: true, comment: summarizeComment(comment) });
       },
@@ -402,7 +454,8 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         token: tokenField,
       },
       handler: async (input) => {
-        const projects = await client.listProjects(input.token as string | undefined);
+        const all = await client.listProjects(input.token as string | undefined);
+        const projects = pinnedProjectId === undefined ? all : all.filter((project) => project.id === pinnedProjectId);
         return json({ count: projects.length, projects });
       },
     }),
@@ -417,6 +470,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         token: tokenField,
       },
       handler: async (input) => {
+        ensureProjectInScope(input.projectId as number);
         const project = await client.getProject(input.projectId as number, input.token as string | undefined);
         return json({ project });
       },
@@ -434,6 +488,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         isPrivate: z.boolean().optional().describe('Private projects are only reachable with their access token, default false.'),
       },
       handler: async (input) => {
+        refuseWhenPinned('creating a project');
         const project = await client.createProject({
           name: input.name as string,
           handle: input.handle as string,
@@ -464,6 +519,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         if (Object.keys(fields).length === 0) {
           throw new Error('Give at least one field to update.');
         }
+        ensureProjectInScope(input.projectId as number);
         const project = await client.updateProject(input.projectId as number, fields);
         return json({ updated: true, project });
       },
@@ -480,6 +536,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         confirm: z.literal(true).describe('Set to true to confirm the irreversible deletion.'),
       },
       handler: async (input) => {
+        ensureProjectInScope(input.projectId as number);
         const response = await client.deleteProject(input.projectId as number);
         return json({ deleted: true, projectId: input.projectId, response });
       },
@@ -495,6 +552,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         token: tokenField,
       },
       handler: async (input) => {
+        await guardTicket(input.ticketId as number, input.token as string | undefined);
         const attachments = await client.listAttachments(input.ticketId as number, input.token as string | undefined);
         return json({ ticketId: input.ticketId, count: attachments.length, attachments });
       },
@@ -537,6 +595,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         token: tokenField,
       },
       handler: async (input) => {
+        await guardTicket(input.ticketId as number, input.token as string | undefined);
         const response = await client.addAttachments(
           input.ticketId as number,
           input.fileIds as number[],
@@ -559,6 +618,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         token: tokenField,
       },
       handler: async (input) => {
+        await guardTicket(input.ticketId as number, input.token as string | undefined);
         const url = await client.resolveAttachmentUrl(
           input.ticketId as number,
           input.fileId as number,
@@ -587,6 +647,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
         token: tokenField,
       },
       handler: async (input) => {
+        await guardTicket(input.ticketId as number, input.token as string | undefined);
         const response = await client.deleteAttachment(
           input.ticketId as number,
           input.fileId as number,
@@ -610,6 +671,7 @@ export function createTools(client: SupportSystemClient): ToolDefinition[] {
           apiUrl: settings.apiUrl,
           apiKeyConfigured: settings.apiKey !== undefined,
           projectTokenConfigured: settings.projectToken !== undefined,
+          projectId: settings.projectId ?? null,
           timeoutMs: settings.timeoutMs,
           ticketStates: TICKET_STATES,
           workflowStates: TICKET_WORKFLOW_STATES,

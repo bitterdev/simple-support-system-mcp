@@ -171,3 +171,94 @@ test('get_server_info never exposes the API key', async () => {
   assert.match(text, /"apiKeyConfigured": true/);
   assert.equal(text.includes('test-key'), false);
 });
+
+function pinnedTools(responses: StubResponse | StubResponse[]) {
+  const { client, http } = createTestClient(responses, { apiKey: undefined, projectToken: 'project-token', projectId: 59 });
+  const tools = createTools(client);
+  const byName = (name: string): ToolDefinition => {
+    const tool = tools.find((entry) => entry.name === name);
+    assert.ok(tool !== undefined, `tool ${name} is missing`);
+    return tool;
+  };
+  return { byName, http };
+}
+
+test('a pinned server lists the tickets of its own project without being asked', async () => {
+  const { byName, http } = pinnedTools({ body: [{ id: 1, projectId: 59 }] });
+  const data = payload(await byName('list_tickets').handler({}));
+  assert.equal(http.lastUrl().searchParams.get('projectId'), '59');
+  assert.equal(data.returned, 1);
+});
+
+test('a pinned server refuses another project', async () => {
+  const { byName, http } = pinnedTools({ body: [] });
+  const result = await byName('list_tickets').handler({ projectId: 60 });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0]?.text ?? '', /limited to project 59/);
+  assert.equal(http.requests.length, 0);
+});
+
+test('a pinned server refuses a project handle that resolves elsewhere', async () => {
+  const { byName } = pinnedTools({ body: [{ id: 60, handle: 'other' }, { id: 59, handle: 'mine' }] });
+  const result = await byName('create_ticket').handler({
+    projectHandle: 'other',
+    title: 'T',
+    content: 'C',
+    ticketType: 'bug',
+    ticketPriority: 'minor',
+  });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0]?.text ?? '', /limited to project 59/);
+});
+
+test('a pinned server only shows its own project', async () => {
+  const { byName } = pinnedTools({
+    body: [
+      { id: 1, handle: 'public_addon', isPrivate: false },
+      { id: 59, handle: 'mine', isPrivate: true },
+    ],
+  });
+  const data = payload(await byName('list_projects').handler({}));
+  assert.equal(data.count, 1);
+  assert.deepEqual((data.projects as { id: number }[]).map((project) => project.id), [59]);
+});
+
+test('a pinned server creates tickets in its own project by default', async () => {
+  const { byName, http } = pinnedTools({ body: { time: '2026-09-14 12:00:00', message: null } });
+  const data = payload(
+    await byName('create_ticket').handler({ title: 'T', content: 'C', ticketType: 'bug', ticketPriority: 'minor', email: 'a@b.c' }),
+  );
+  assert.equal(data.created, true);
+  assert.equal(http.lastForm().get('projectId'), '59');
+  assert.equal(http.lastForm().get('token'), 'project-token');
+});
+
+test('a pinned server does not read a ticket of another project', async () => {
+  const { byName, http } = pinnedTools([{ body: { ticket: { id: 7, projectId: 3 } } }, { body: [] }]);
+  const result = await byName('get_ticket').handler({ ticketId: 7 });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0]?.text ?? '', /Ticket 7 belongs to project 3/);
+  assert.equal(http.requests.length, 1);
+});
+
+test('a pinned server does not reply to a ticket of another project', async () => {
+  const { byName, http } = pinnedTools([{ body: { ticket: { id: 7, projectId: 3 } } }, { body: { comment: { id: 1 } } }]);
+  const result = await byName('reply_to_ticket').handler({ ticketId: 7, comment: 'Hi', email: 'a@b.c' });
+  assert.equal(result.isError, true);
+  assert.equal(http.requests.length, 1);
+});
+
+test('a pinned server replies to a ticket of its own project', async () => {
+  const { byName, http } = pinnedTools([{ body: { ticket: { id: 8, projectId: 59 } } }, { body: { comment: { id: 2, content: 'Hi' } } }]);
+  const data = payload(await byName('reply_to_ticket').handler({ ticketId: 8, comment: 'Hi', email: 'a@b.c' }));
+  assert.equal(data.posted, true);
+  assert.equal(http.requests.length, 2);
+  assert.equal(http.lastForm().get('ticketId'), '8');
+});
+
+test('get_server_info reports the pinned project', async () => {
+  const { byName } = pinnedTools({ body: {} });
+  const data = payload(await byName('get_server_info').handler({}));
+  assert.equal(data.projectId, 59);
+  assert.equal(data.apiKeyConfigured, false);
+});

@@ -33,6 +33,24 @@ test('the config is read from the environment', () => {
   assert.equal(config.timeoutMs, DEFAULT_TIMEOUT_MS);
 });
 
+test('a pinned project id is read from the environment', () => {
+  const config = loadConfig({
+    SIMPLE_SUPPORT_SYSTEM_BASE_URL: 'https://example.com',
+    SIMPLE_SUPPORT_SYSTEM_PROJECT_ID: '59',
+  });
+  assert.equal(config.projectId, 59);
+  assert.equal(loadConfig({ SIMPLE_SUPPORT_SYSTEM_BASE_URL: 'https://example.com' }).projectId, undefined);
+});
+
+test('a malformed pinned project id is rejected', () => {
+  for (const value of ['abc', '0', '-3', '5.5']) {
+    assert.throws(
+      () => loadConfig({ SIMPLE_SUPPORT_SYSTEM_BASE_URL: 'https://example.com', SIMPLE_SUPPORT_SYSTEM_PROJECT_ID: value }),
+      /SIMPLE_SUPPORT_SYSTEM_PROJECT_ID must be a positive integer/,
+    );
+  }
+});
+
 test('empty environment values count as unset', () => {
   const config = loadConfig({
     SIMPLE_SUPPORT_SYSTEM_BASE_URL: 'https://example.com',

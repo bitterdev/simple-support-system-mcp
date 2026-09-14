@@ -4,6 +4,7 @@ export const ENV_BASE_URL = 'SIMPLE_SUPPORT_SYSTEM_BASE_URL';
 export const ENV_API_KEY = 'SIMPLE_SUPPORT_SYSTEM_API_KEY';
 export const ENV_API_PATH = 'SIMPLE_SUPPORT_SYSTEM_API_PATH';
 export const ENV_PROJECT_TOKEN = 'SIMPLE_SUPPORT_SYSTEM_PROJECT_TOKEN';
+export const ENV_PROJECT_ID = 'SIMPLE_SUPPORT_SYSTEM_PROJECT_ID';
 export const ENV_TIMEOUT_MS = 'SIMPLE_SUPPORT_SYSTEM_TIMEOUT_MS';
 
 export const API_KEY_HEADER = 'X-Api-Key';
@@ -19,6 +20,8 @@ export interface ServerConfig {
   apiKey?: string;
   /** Fallback access token for private projects. */
   projectToken?: string;
+  /** When set, every tool is limited to this one project. */
+  projectId?: number;
   timeoutMs: number;
 }
 
@@ -83,6 +86,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     timeoutMs = Math.floor(parsedTimeout);
   }
 
+  const rawProjectId = readOptional(env, ENV_PROJECT_ID);
+  let projectId: number | undefined;
+  if (rawProjectId !== undefined) {
+    if (!/^\d+$/.test(rawProjectId) || Number(rawProjectId) <= 0) {
+      throw new Error(`${ENV_PROJECT_ID} must be a positive integer, got ${rawProjectId}`);
+    }
+    projectId = Number(rawProjectId);
+  }
+
   const baseUrl = stripTrailingSlashes(rawBaseUrl);
 
   return {
@@ -90,6 +102,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     apiUrl: resolveApiUrl(baseUrl, readOptional(env, ENV_API_PATH)),
     apiKey: readOptional(env, ENV_API_KEY),
     projectToken: readOptional(env, ENV_PROJECT_TOKEN),
+    ...(projectId !== undefined ? { projectId } : {}),
     timeoutMs,
   };
 }

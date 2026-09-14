@@ -47,6 +47,7 @@ Or in `~/.claude.json` / `claude_desktop_config.json`:
 | `SIMPLE_SUPPORT_SYSTEM_API_KEY` | API key of the installation, sent as the `X-Api-Key` header. Without it only the public part of the API is reachable. |
 | `SIMPLE_SUPPORT_SYSTEM_API_PATH` | Optional. Overrides the default API path for sites that do not use the `index.php` dispatcher, for example `/api/v1`. |
 | `SIMPLE_SUPPORT_SYSTEM_PROJECT_TOKEN` | Optional. Default access token for private projects, used when a tool call passes no token of its own. |
+| `SIMPLE_SUPPORT_SYSTEM_PROJECT_ID` | Optional. Limits the server to this one project, see [Limiting the server to one project](#limiting-the-server-to-one-project). |
 | `SIMPLE_SUPPORT_SYSTEM_TIMEOUT_MS` | Optional. Request timeout in milliseconds, default `30000`. |
 
 The API key is generated when the package is installed and lives in the site config under `simple_support_system.api_key`. Calls without it run as an anonymous visitor: reading public projects and their approved tickets, creating tickets and writing comments still work, everything administrative (state changes, deleting, approving, projects) does not.
@@ -113,6 +114,10 @@ add_ticket_attachments { "ticketId": 42, "fileIds": [123] }
 ### Private projects
 
 A private project is only reachable with its access token. Pass it per call as `token`, or set `SIMPLE_SUPPORT_SYSTEM_PROJECT_TOKEN` as the default. With an API key the token is not needed, the key already grants full access.
+
+### Limiting the server to one project
+
+Set `SIMPLE_SUPPORT_SYSTEM_PROJECT_ID` to hand the server to someone who should only work in one project, typically together with that project's access token and without an API key. `list_tickets` and `create_ticket` then use this project when none is given, `list_projects` shows only this project, and every tool that takes a ticket id first checks that the ticket belongs to it. A different project id or handle is rejected. Without an API key the site itself already keeps other private projects closed, the setting additionally keeps the public projects of the installation out of view.
 
 ## Notes on the API
 
