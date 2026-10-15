@@ -97,6 +97,37 @@ export class SupportSystemClient {
     return this.config.projectToken;
   }
 
+  /**
+   * Run a ticket scoped call. Private projects refuse ticket reads without their access token even when an API key
+   * is configured, but the API key may list every project token. On a 403 without any token the ticket's project
+   * token is therefore looked up once and the call is repeated with it.
+   */
+  private async withTicketToken<T>(ticketId: number, token: string | undefined, call: (token?: string) => Promise<T>): Promise<T> {
+    const configured = this.token(token);
+    try {
+      return await call(configured);
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 403 || configured !== undefined || this.config.apiKey === undefined) {
+        throw error;
+      }
+      const projectToken = await this.projectTokenOfTicket(ticketId).catch(() => undefined);
+      if (projectToken === undefined) {
+        throw error;
+      }
+      return call(projectToken);
+    }
+  }
+
+  private async projectTokenOfTicket(ticketId: number): Promise<string | undefined> {
+    const ticket = (await this.listTickets()).find((entry) => entry.id === ticketId);
+    if (ticket === undefined || typeof ticket.projectId !== 'number') {
+      return undefined;
+    }
+    const project = (await this.listProjects()).find((entry) => entry.id === ticket.projectId);
+    const accessToken = project?.accessToken;
+    return typeof accessToken === 'string' && accessToken !== '' ? accessToken : undefined;
+  }
+
   private headers(extra?: Record<string, string>): Record<string, string> {
     const headers: Record<string, string> = { Accept: 'application/json', ...extra };
     if (this.config.apiKey !== undefined) {
@@ -243,11 +274,9 @@ export class SupportSystemClient {
   }
 
   async getTicket(id: number, token?: string): Promise<Ticket> {
-    const result = await this.send({
-      method: 'GET',
-      path: `/ticket/${id}`,
-      query: { token: this.token(token) },
-    });
+    const result = await this.withTicketToken(id, token, (access) =>
+      this.send({ method: 'GET', path: `/ticket/${id}`, query: { token: access } }),
+    );
     return unwrapResource(result.body) as Ticket;
   }
 
@@ -326,11 +355,9 @@ export class SupportSystemClient {
   // Comments
 
   async listComments(ticketId: number, token?: string): Promise<TicketComment[]> {
-    const result = await this.send({
-      method: 'GET',
-      path: `/ticket/${ticketId}/comments`,
-      query: { token: this.token(token) },
-    });
+    const result = await this.withTicketToken(ticketId, token, (access) =>
+      this.send({ method: 'GET', path: `/ticket/${ticketId}/comments`, query: { token: access } }),
+    );
     return unwrapCollection(result.body) as TicketComment[];
   }
 
@@ -340,16 +367,13 @@ export class SupportSystemClient {
     email?: string;
     token?: string;
   }): Promise<TicketComment> {
-    const result = await this.send({
-      method: 'POST',
-      path: '/ticket/comment',
-      form: {
-        ticketId: fields.ticketId,
-        comment: fields.comment,
-        email: fields.email,
-        token: this.token(fields.token),
-      },
-    });
+    const result = await this.withTicketToken(fields.ticketId, fields.token, (access) =>
+      this.send({
+        method: 'POST',
+        path: '/ticket/comment',
+        form: { ticketId: fields.ticketId, comment: fields.comment, email: fields.email, token: access },
+      }),
+    );
     return unwrapResource(result.body) as TicketComment;
   }
 
@@ -378,29 +402,23 @@ export class SupportSystemClient {
   // Attachments
 
   async listAttachments(ticketId: number, token?: string): Promise<Attachment[]> {
-    const result = await this.send({
-      method: 'GET',
-      path: `/ticket/${ticketId}/attachments`,
-      query: { token: this.token(token) },
-    });
+    const result = await this.withTicketToken(ticketId, token, (access) =>
+      this.send({ method: 'GET', path: `/ticket/${ticketId}/attachments`, query: { token: access } }),
+    );
     return unwrapCollection(result.body) as Attachment[];
   }
 
   async addAttachments(ticketId: number, attachmentFileIds: number[], token?: string): Promise<unknown> {
-    const result = await this.send({
-      method: 'POST',
-      path: `/ticket/${ticketId}/attachments`,
-      form: { attachmentFileIds, token: this.token(token) },
-    });
+    const result = await this.withTicketToken(ticketId, token, (access) =>
+      this.send({ method: 'POST', path: `/ticket/${ticketId}/attachments`, form: { attachmentFileIds, token: access } }),
+    );
     return result.body;
   }
 
   async deleteAttachment(ticketId: number, fileId: number, token?: string): Promise<unknown> {
-    const result = await this.send({
-      method: 'POST',
-      path: `/ticket/${ticketId}/attachments/${fileId}/delete`,
-      form: { token: this.token(token) },
-    });
+    const result = await this.withTicketToken(ticketId, token, (access) =>
+      this.send({ method: 'POST', path: `/ticket/${ticketId}/attachments/${fileId}/delete`, form: { token: access } }),
+    );
     return result.body;
   }
 
@@ -414,13 +432,15 @@ export class SupportSystemClient {
 
   /** The download endpoint answers with a redirect, this returns its target URL. */
   async resolveAttachmentUrl(ticketId: number, fileId: number, token?: string): Promise<string> {
-    const result = await this.send({
-      method: 'GET',
-      path: `/ticket/${ticketId}/attachments/${fileId}/download`,
-      query: { token: this.token(token) },
-      redirect: 'manual',
-      allowRedirect: true,
-    });
+    const result = await this.withTicketToken(ticketId, token, (access) =>
+      this.send({
+        method: 'GET',
+        path: `/ticket/${ticketId}/attachments/${fileId}/download`,
+        query: { token: access },
+        redirect: 'manual',
+        allowRedirect: true,
+      }),
+    );
     const location = result.headers.location;
     if (typeof location !== 'string' || location === '') {
       throw new Error(`The download endpoint did not return a location header for file ${fileId} of ticket ${ticketId}.`);

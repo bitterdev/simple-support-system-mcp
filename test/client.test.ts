@@ -36,6 +36,37 @@ test('a single ticket is unwrapped from its resource key', async () => {
   assert.deepEqual(ticket, { id: 12, title: 'Broken' });
 });
 
+test('a private ticket is read with its project token looked up through the API key', async () => {
+  const { client, http } = createTestClient([
+    { status: 403, body: { errors: ['Access denied.'] } },
+    { body: [{ id: 78, projectId: 60 }] },
+    { body: [{ id: 60, handle: 'shop', isPrivate: true, accessToken: 'secret-60' }] },
+    { body: { ticket: { id: 78, title: 'Footer' } } },
+  ]);
+  const ticket = await client.getTicket(78);
+  assert.equal(http.requests.length, 4);
+  assert.equal(http.lastUrl().pathname, '/index.php/api/v1/ticket/78');
+  assert.equal(http.lastUrl().searchParams.get('token'), 'secret-60');
+  assert.deepEqual(ticket, { id: 78, title: 'Footer' });
+});
+
+test('a 403 with an explicit token is not retried', async () => {
+  const { client, http } = createTestClient({ status: 403, body: { errors: ['Access denied.'] } });
+  await assert.rejects(() => client.getTicket(78, 'wrong'), ApiError);
+  assert.equal(http.requests.length, 1);
+});
+
+test('the original 403 is kept when no project token can be found', async () => {
+  const { client } = createTestClient([
+    { status: 403, body: { errors: ['Access denied.'] } },
+    { body: [] },
+  ]);
+  await assert.rejects(
+    () => client.getTicket(78),
+    (error: unknown) => error instanceof ApiError && error.path === '/ticket/78',
+  );
+});
+
 test('a reply is posted as a form encoded comment', async () => {
   const { client, http } = createTestClient({ body: { comment: { id: 88, content: 'On it' } } });
   const comment = await client.addComment({ ticketId: 12, comment: 'On it', email: 'someone@example.com' });
